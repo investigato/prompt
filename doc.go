@@ -24,7 +24,7 @@
 //	import (
 //		"fmt"
 //		"log"
-//		"github.com/nao1215/prompt"
+//		"github.com/investigato/prompt"
 //	)
 //
 //	func main() {

@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/nao1215/prompt"
+	"github.com/investigato/prompt"
 )
 
 // scrollTestCompleter provides many suggestions to test scrolling functionality

@@ -227,13 +227,14 @@ type HistoryConfig struct {
 
 // Config holds the configuration for a prompt.
 type Config struct {
-	Prefix        string                      // Prompt prefix (e.g., "$ ")
-	Completer     func(Document) []Suggestion // Completion function (accepts Document for context)
-	HistoryConfig *HistoryConfig              // History configuration (nil for default)
-	ColorScheme   *ColorScheme                // Color scheme (nil for default)
-	KeyMap        *KeyMap                     // Key bindings (nil for default)
-	Theme         *ColorScheme                // Alias for ColorScheme for compatibility
-	Multiline     bool                        // Enable multiline input mode
+	Prefix                string                      // Prompt prefix (e.g., "$ ")
+	Completer             func(Document) []Suggestion // Completion function (accepts Document for context)
+	HistoryConfig         *HistoryConfig              // History configuration (nil for default)
+	ColorScheme           *ColorScheme                // Color scheme (nil for default)
+	KeyMap                *KeyMap                     // Key bindings (nil for default)
+	Theme                 *ColorScheme                // Alias for ColorScheme for compatibility
+	Multiline             bool                        // Enable multiline input mode
+	BackslashContinuation bool                        // Bypasses special handling of backslash for line continuation in multiline mode
 }
 
 // Option represents a configuration option for prompt
@@ -325,6 +326,13 @@ func WithTheme(theme *ColorScheme) Option {
 func WithMultiline(multiline bool) Option {
 	return func(c *Config) {
 		c.Multiline = multiline
+	}
+}
+
+// WithBackslashContinuation enables or disables backslash line continuation
+func WithBackslashContinuation(enabled bool) Option {
+	return func(c *Config) {
+		c.BackslashContinuation = enabled
 	}
 }
 
@@ -463,6 +471,9 @@ func newFromConfig(config Config) (*Prompt, error) {
 		config.KeyMap = NewDefaultKeyMap()
 	}
 
+	if !config.BackslashContinuation {
+		config.BackslashContinuation = false
+	}
 	// Setup output writer with color support
 	var output io.Writer = os.Stdout
 	if runtime.GOOS == windowsOS {
@@ -1370,7 +1381,7 @@ func (p *Prompt) isShiftEnter() bool {
 	currentLine := p.getCurrentLineText()
 
 	// Check for backslash continuation - if present, add newline
-	if strings.HasSuffix(strings.TrimRight(currentLine, " \t"), "\\") {
+	if p.config.BackslashContinuation && strings.HasSuffix(strings.TrimRight(currentLine, " \t"), "\\") {
 		// Remove the backslash and add newline for continuation
 		p.removeTrailingBackslash()
 		return true // Add newline for continuation

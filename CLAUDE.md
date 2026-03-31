@@ -224,3 +224,31 @@ func WithKeyMap(keyMap *KeyMap) Option
 - **Sponsors**: https://github.com/sponsors/nao1215
 - **Contributing**: See CONTRIBUTING.md for detailed guidelines
 - **International Contributors**: All documentation and code comments in English
+
+---
+
+## Merton Usage Notes
+
+This library is used as the interactive prompt in merton (Go WinRM/PSRP shell).
+It is a local fork — modifications are intentional and expected.
+
+### Known Issue: Backslash Continuation Breaks Windows Paths
+
+`isShiftEnter()` in `prompt.go` (line ~1373) treats any line ending with `\` as a
+line continuation — removes the backslash and waits for more input. This breaks Windows
+paths: `cd C:\` hangs waiting for a second Enter.
+
+**Fix**: Added `BackslashContinuation bool` to `Config` (default `false`) and guarded the
+check in `isShiftEnter()`:
+
+```go
+if p.config.BackslashContinuation && strings.HasSuffix(..., "\\") {
+```
+
+Merton never enables backslash continuation. PowerShell multiline scripts use braces
+and pipe continuation, not backslash.
+
+### Multiline Mode
+
+Merton uses `WithMultiline(true)`. Shift+Enter adds a newline; Enter submits.
+Bracketed paste works natively — this is why the library was chosen over chzyer/readline.
