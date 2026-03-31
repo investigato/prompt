@@ -471,9 +471,6 @@ func newFromConfig(config Config) (*Prompt, error) {
 		config.KeyMap = NewDefaultKeyMap()
 	}
 
-	if !config.BackslashContinuation {
-		config.BackslashContinuation = false
-	}
 	// Setup output writer with color support
 	var output io.Writer = os.Stdout
 	if runtime.GOOS == windowsOS {
