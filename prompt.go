@@ -72,6 +72,8 @@ const (
 	ActionHistoryDown
 	ActionHistorySearch
 	ActionNewLine
+	ActionPasteStart
+	ActionPasteEnd
 )
 
 // KeyMap holds the key binding configuration
@@ -142,7 +144,8 @@ func NewDefaultKeyMap() *KeyMap {
 	km.sequences["[1;5C"] = ActionMoveWordRight // Ctrl+Right
 	km.sequences["[1;5D"] = ActionMoveWordLeft  // Ctrl+Left
 	km.sequences["[3~"] = ActionDeleteChar      // Delete
-
+	km.sequences["[200~"] = ActionPasteStart
+	km.sequences["[201~"] = ActionPasteEnd
 	return km
 }
 
@@ -227,14 +230,14 @@ type HistoryConfig struct {
 
 // Config holds the configuration for a prompt.
 type Config struct {
-	Prefix                string                      // Prompt prefix (e.g., "$ ")
-	Completer             func(Document) []Suggestion // Completion function (accepts Document for context)
-	HistoryConfig         *HistoryConfig              // History configuration (nil for default)
-	ColorScheme           *ColorScheme                // Color scheme (nil for default)
-	KeyMap                *KeyMap                     // Key bindings (nil for default)
-	Theme                 *ColorScheme                // Alias for ColorScheme for compatibility
-	Multiline             bool                        // Enable multiline input mode
-	BackslashContinuation bool                        // Bypasses special handling of backslash for line continuation in multiline mode
+	Prefix        string                      // Prompt prefix (e.g., "$ ")
+	Completer     func(Document) []Suggestion // Completion function (accepts Document for context)
+	HistoryConfig *HistoryConfig              // History configuration (nil for default)
+	ColorScheme   *ColorScheme                // Color scheme (nil for default)
+	KeyMap        *KeyMap                     // Key bindings (nil for default)
+	Theme         *ColorScheme                // Alias for ColorScheme for compatibility
+	Multiline     bool                        // Enable multiline input mode
+	// BackslashContinuation bool                        // Bypasses special handling of backslash for line continuation in multiline mode
 }
 
 // Option represents a configuration option for prompt
@@ -329,12 +332,12 @@ func WithMultiline(multiline bool) Option {
 	}
 }
 
-// WithBackslashContinuation enables or disables backslash line continuation
-func WithBackslashContinuation(enabled bool) Option {
-	return func(c *Config) {
-		c.BackslashContinuation = enabled
-	}
-}
+// // WithBackslashContinuation enables or disables backslash line continuation
+// func WithBackslashContinuation(enabled bool) Option {
+// 	return func(c *Config) {
+// 		c.BackslashContinuation = enabled
+// 	}
+// }
 
 // Suggestion represents a completion suggestion.
 type Suggestion struct {
@@ -592,6 +595,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 	var suggestions []Suggestion
 	selectedSuggestion := 0
 	suggestionOffset := 0 // Track the offset for scrolling through suggestions
+	inPaste := false
 
 	for {
 		select {
@@ -599,7 +603,6 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			return "", ctx.Err()
 		default:
 		}
-
 		// Read key input
 		r, err := p.readRune()
 		if err != nil {
@@ -608,7 +611,6 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			}
 			return "", fmt.Errorf("failed to read input: %w", err)
 		}
-
 		var action KeyAction
 
 		// Handle escape sequences
@@ -624,29 +626,38 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 
 		// Execute action
 		switch action {
+		case ActionPasteStart:
+			inPaste = true
+
+		case ActionPasteEnd:
+			inPaste = false
+
 		case ActionSubmit:
-			// If suggestions are displayed, accept the selected one and continue editing
-			if len(suggestions) > 0 {
-				p.acceptSuggestion(suggestions[selectedSuggestion])
-				suggestions = nil
-				// Clear suggestions and continue editing without submitting
+			if inPaste {
+				p.insertRune('\n') // don't submit, just newline
 			} else {
-				// Proceed with normal submit only if no suggestions were displayed
-				// Check if this is a multi-line context that should add newline instead
-				if p.isShiftEnter() {
-					p.insertRune('\n')
+				// If suggestions are displayed, accept the selected one and continue editing
+				if len(suggestions) > 0 {
+					p.acceptSuggestion(suggestions[selectedSuggestion])
 					suggestions = nil
+					// Clear suggestions and continue editing without submitting
 				} else {
-					result := string(p.buffer)
-					if result != "" && (len(p.history) == 0 || p.history[len(p.history)-1] != result) {
-						p.addToHistory(result)
+					// Proceed with normal submit only if no suggestions were displayed
+					// Check if this is a multi-line context that should add newline instead
+					if p.isShiftEnter() {
+						p.insertRune('\n')
+						suggestions = nil
+					} else {
+						result := string(p.buffer)
+						if result != "" && (len(p.history) == 0 || p.history[len(p.history)-1] != result) {
+							p.addToHistory(result)
+						}
+						fmt.Fprint(p.output, "\r\n")
+						// Terminal will be restored by defer, no need to mark as restored here
+						return result, nil
 					}
-					fmt.Fprint(p.output, "\r\n")
-					// Terminal will be restored by defer, no need to mark as restored here
-					return result, nil
 				}
 			}
-
 		case ActionCancel:
 			// Ensure terminal state is properly restored before returning
 			if err := p.exitRawMode(); err != nil {
@@ -1375,14 +1386,14 @@ func (p *Prompt) addToHistory(text string) {
 
 // isShiftEnter detects if we should add a newline instead of submitting
 func (p *Prompt) isShiftEnter() bool {
-	currentLine := p.getCurrentLineText()
+	// currentLine := p.getCurrentLineText()
 
-	// Check for backslash continuation - if present, add newline
-	if p.config.BackslashContinuation && strings.HasSuffix(strings.TrimRight(currentLine, " \t"), "\\") {
-		// Remove the backslash and add newline for continuation
-		p.removeTrailingBackslash()
-		return true // Add newline for continuation
-	}
+	// // Check for backslash continuation - if present, add newline
+	// if strings.HasSuffix(strings.TrimRight(currentLine, " \t"), "\\") {
+	// 	// Remove the backslash and add newline for continuation
+	// 	p.removeTrailingBackslash()
+	// 	return true // Add newline for continuation
+	// }
 
 	// If no backslash, Enter submits (both single-line and multiline modes)
 	return false
@@ -1514,10 +1525,12 @@ func (p *Prompt) removeTrailingBackslash() {
 }
 
 func (p *Prompt) enterRawMode() error {
+	fmt.Fprint(p.output, "\x1b[?2004h")
 	return p.terminal.SetRaw()
 }
 
 func (p *Prompt) exitRawMode() error {
+	fmt.Fprint(p.output, "\x1b[?2004l")
 	return p.terminal.Restore()
 }
 
@@ -1552,6 +1565,12 @@ func (p *Prompt) readEscapeSequence() (string, error) {
 			return s, nil
 		}
 		if len(seq) >= 3 && (seq[len(seq)-1] < '0' || seq[len(seq)-1] > '9') {
+			return s, nil
+		}
+		if s == "[200~" {
+			return s, nil
+		}
+		if s == "[201~" {
 			return s, nil
 		}
 	}
